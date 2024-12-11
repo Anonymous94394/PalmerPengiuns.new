@@ -1,0 +1,382 @@
+---
+title: "Palmer Penguin Analyses"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2          
+    toc_float: true       
+    code_folding: hide
+date: "2024-12-09"
+bibliography: references.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+###Initialize renv Environment to install required packages 
+
+```{r, message = FALSE, warning = FALSE}
+renv::restore()
+```
+
+### Load packages
+
+```{r, message = FALSE, warning = FALSE}
+library(palmerpenguins)
+library(ggplot2)
+library(janitor)
+library(dplyr)
+library(here)
+library(svglite)
+library(car)
+library(ggsignif)
+library(broom)
+library(ggpubr)
+library(rstatix)
+library(knitr)
+library(kableExtra)
+library(renv)
+```
+
+
+### Load the data
+
+```{r, include=TRUE}
+
+#Load the data 
+penguins_raw <- read.csv(here("data", "penguins_raw.csv")) 
+
+# Clean column names to ensure consistency and prevent issues with special characters or spaces during knitting
+penguins_raw <- penguins_raw %>% clean_names()
+
+```
+
+
+# **Section 1:** Data Visualization for Science Communication
+
+```{r echo=FALSE, warning=FALSE, fig.align='center', message = FALSE}
+
+penguins_filtered <- penguins_raw %>%
+  filter(
+    `culmen_length_mm` > 33, # backticks around column names with spaces
+    `culmen_depth_mm` < 30
+  )
+
+ggplot(penguins_filtered, aes(x = `culmen_depth_mm`, y = `culmen_length_mm`, shape = sex, color = sex)) +
+  geom_point(size = 5, alpha = 1.0) +  # Add points
+  geom_smooth(method = "lm", se = FALSE, color = "blue", aes(group = 1)) +  # Single trend line 
+  labs(x = "Culmen depth", y = "length", title = "Comparing lengths") +  # Add axis labels and title
+  theme(
+    axis.title = element_text(size = 5),  # Adjust size of axis titles
+    plot.title = element_text(size = 12),  # Adjust size of the plot title
+    legend.text = element_text(size = 5),  # Adjust size of legend text
+    legend.title = element_text(size = 10) # Adjust size of legend title
+  )+
+  scale_y_continuous(limits = c(30, 55)) +  # Shrink the y-axis range
+  scale_x_continuous(limits = c(10, 25))  # Shrink the x-axis range
+
+```
+
+### b) Write about how your design choices mislead the reader about the underlying data (200-300 words).
+
+The presented figure employs multiple design features that mislead the viewer and misrepresent the underlying data, reflecting common issues in scientific reporting and reproducibility. A nature survey found that 70% of researchers have tried and failed to reproduce another scientist's work, and more than half have failed to reproduce their own [@baker2016reproducibility]. The lack of reproducibility is driven by factors such as the pressure to publish, which prioritises novel findings over rigour, and selective reporting, which biases the literature toward positive results [@baker2016reproducibility]. 
+
+The figure above is a good example of misleading data representation, showing a negative correlation between culmen length and depth. However, closer analysis (e.g., colouring dots by species) would reveal a positive correlation within each species. This is known as Simpson's paradox. This data was also filtered to exclude extreme values, a practice known as cherry-picking, which can obscure the true relationship. Both cherry-picking and Simpson's paradox are common issues in closed research processes. This figure has multiple aesthetic problems which interfere with interpretation. The text is small and ambiguous, lacking units and specificity in the measurements. The data points are large and overlapping, making it hard to understand their true distribution. Finally, the scale does not start at zero, exaggerating the negative slope, and the data points are clumped in the middle of the graph. Overall, this makes it hard to interpret the graph, and what they can gather is misleading.
+
+The push for open access, open data, open source, and other open scholarship practices should prevent the publication of ambiguous, misleading graphs like the one above. The potential benefits of open science, such as increased media attention and collaboration opportunities, are driving its growing popularity. However, insufficient public evidence of open publishing's effectiveness currently limits full compliance among scientists [@mckiernan2016open].
+
+
+------------------------------------------------------------------------
+
+# **Section 2:** Data Pipeline
+
+# [Introduction]{.underline}
+
+> Gentoo, Adelie, and Chinstrap are three species of penguin that are found in the Palmer Archipelago near Antarctica. This analysis seeks to determine whether these species occupy different feeding niches by comparing their bill morphology, specifically the culmen depth. Morphological plasticity in bill size has been shown to relate closely to diet and thus, niche differentiation [@laranjeiro2022variation]. Specifically, culmen depth plays a crucial role in determining the strength and functionality of a penguin's bill, directly influencing the types of prey the species can access. A deeper bill typically allows for the capture and handling of larger, more robust prey. This study will compare the culmen depth of these species to gain insights into niche differentiation.
+
+### View the raw data 
+
+```{r, include=TRUE}
+kable(head(penguins_raw), caption = "Preview of Penguin Dataset")
+```
+### Cleaning and filtering the data
+
+```{r, include=TRUE}
+
+#Save a raw copy of the data before cleaning it. 
+write.csv(penguins_raw, "data/penguins_raw.csv")
+
+#Load the Function to clean the data 
+source(here("Functions", "Cleaning.R"))
+
+#Clean the data 
+penguins_clean <- Cleaning(penguins_raw) #See annotation within the cleaning function
+
+#Save the cleaned data set 
+write.csv(penguins_clean, "data/penguins_clean.csv")
+
+#Select the collumn that will be analysed (culmen_depth_mm) and remove rows with NA. This ensures NA are only removed from the collumn being used. 
+penguins_clean_subset <- penguins_clean %>% select(culmen_depth_mm, species) %>% remove_NA() #Remove_NA is from within the cleaning package. 
+
+```
+
+### Visualising the data
+
+```{r echo=TRUE, warning=FALSE, fig.align='center', message = FALSE}
+
+# Plot a histogram of all the raw data 
+Flipper.Histogram <- ggplot(penguins_clean_subset, aes(x = culmen_depth_mm, fill = species)) +  # Load ggplot2 and prepare the plot
+  geom_histogram(alpha = 0.6, position = "identity", binwidth = 0.3) +  # Add a histogram layer with transparency and overlapping histogram bars 
+  labs(
+    title = "Culmen Depth Distribution of the Palma Pengiuns",
+    x = "Culmen Depth Length (mm)",
+    y = "Frequency",
+    caption = "Figure 1: Histogram showing the distribution of culmen depth measurements (in mm) for different penguin \n species, highlighting the similarities and variations in culmen depth between species") + # Add labels for the title and axes
+  theme(
+    plot.caption = element_text(hjust = 0, size = 9) # Align the caption to the left and size it
+  ) + theme_bw() #Set the theme 
+
+# Display the plot
+print(Flipper.Histogram)
+
+```
+
+### Saving the figure 
+```{r, message=FALSE, warning=FALSE}
+# I now want to save this plot by calling the save function
+source(here("Functions", "SavingFigure.R")) # Details in the function file
+
+# Apply the function
+save_flipper_plot_svg(Flipper.Histogram,
+                      here("Figures", "Flipper.Histogram.svg"), size = 25, scaling = 1.25)
+```
+
+### Summary statistics
+
+```{r}
+#Call the summary function
+source(here("Functions", "Summary.R")) #Details in the function file 
+
+#Run the function 
+summarize_data(penguins_clean_subset, "species", "culmen_depth_mm", "Table 1: Summary Statistics of Beak Depth (mm) by Year")
+                
+```
+
+### Insight from exploration and cleaning
+
+> The data, sourced from the palmerpenguin R package, includes various measurements collected from 344 penguins, representing three species: Adelie, Gentoo, and Chinstrap. The exploratory plot and summary statistics reveal that Adelie and Chinstrap penguins have similar culmen lengths, while Gentoo penguins exhibit greater variation. Hypothesis generation and statistical analysis is required to assess the significance of these differences.
+
+# [Hypothesis]{.underline}
+
+
+:::: hypothesis
+::: {style="border: 2px solid #000; padding: 10px; background-color: #f9f9f9; border-radius: 5px;"}
+**H0:** There is no significant difference between the Culmen Depth of the Palma Penguins.
+
+**H1:** There is no significant difference between the Culmen Depth of the Palma Penguins.
+:::
+::::
+
+# [Methods - statistical analyses]{.underline}
+
+> A fixed linear model was created, with species as the explanatory variable and culmen depth as the response variable. Residual and QQ plots were utilised to evaluate model assumptions, revealing that the data satisfied the homoscedasticity assumption (confirmed by Levene's test) but violated the normality assumption (confirmed by the Shapiro-Wilk test). However, the QQ plot showed only minor deviations from normality, and given the large sample size (344), linear models are generally robust to such slight violations, so the data was not transformed. A one-way ANOVA was then performed to assess whether the mean culmen lengths between species were significantly different, with significance determined at α=0.05. Finally, a pairwise comparison with a Bonferroni adjustment, accounting for Type I error, was performed to confirm the pairwise differences.
+
+### Linear model formation
+
+```{r, include=TRUE}
+
+# Generate the linear model 
+Culmen_model <- lm(culmen_depth_mm ~ species, data = penguins_clean_subset) 
+```
+
+### Checking assumptions: graphical assessment
+
+The residual plot shows there is no violation of homoscedasticity in the residuals while the QQ plot shows minor normality violations.
+
+```{r echo=TRUE, warning=FALSE, fig.align='center', message = FALSE}
+
+#Load the Function to check the assumptions 
+source(here("Functions", "AssumptionCheck.R")) #Details in the function file 
+
+#Apply the function 
+Assumption_check(Culmen_model, "Figure 2: The evenness of the residual spread in the three clusters (species) suggests no \n violation of homoscedasticity.\n Figure 3: Residuals mostly follow the diagonal, with slight tail deviations suggesting minor normality \n  violations.") #Function requires the model and the caption to be specified. 
+
+```
+
+### Checking assumptions: Statistical assessment
+
+Levene's test for homogeneity of variance was not significant, indicating no violation the homoscedasity assumption. However, the Shapiro-Wilk test for normality was significant, suggesting a violation of normality. Since this test is highly sensitive, especially with large sample sizes, and linear models are robust to slight deviations from normality, I did not transform the data.
+
+```{r, include=TRUE}
+#Perform the Shapiro-Wilk Test and the Levene's Test, then create a data frame with the results 
+results_table <- list(
+  Shapiro_Wilk = shapiro.test(penguins_clean_subset$culmen_depth_mm),
+  Levene = leveneTest(culmen_depth_mm ~ factor(species), data = penguins_clean_subset)
+) %>%
+  {
+    data.frame( #Create a data frame with the results 
+      Test = c("Shapiro-Wilk", "Levene's Test"),
+      Statistic = c(round(.$Shapiro_Wilk$statistic, 3), round(.$Levene$`F value`[1], 3)), #Extract Test statistic and round to 3.d.p.
+      P_Value = c(
+        formatC(.$Shapiro_Wilk$p.value, format = "e", digits = 3),
+        formatC(.$Levene$`Pr(>F)`[1], format = "e", digits = 3) #Extract P value, convert to standard form and round to 3.d.p. 
+      )
+    )
+  }
+
+#Format the dataframe into a table 
+kable(
+  results_table,
+  col.names = c("Test", "Test Statistic", "P-Value"), #Set the column names 
+  caption = "Table 2: Test Results for Shapiro-Wilk and Levene's Test" #Set the caption 
+) %>%
+  kable_styling(bootstrap_options = c("striped", "hover")) #Style the table to have hovering titles and shading 
+
+
+
+```
+
+### One- Way ANOVA
+```{r, include=TRUE}
+
+# Perform the anova and format the results 
+anova_table <- Anova(Culmen_model) %>% #Perform the ANOVA 
+  as.data.frame() %>% #Turn the results into a data frame
+  setNames(c("Sum Sq", "Df", "F Value", "P-Value")) %>% #Set the names of the values created 
+  dplyr::mutate(`P-Value` = formatC(`P-Value`, format = "e", digits = 3))#Mutate the P value to be in standard form and 3.d.p. (or would present as 0)
+
+#Display the table 
+kable(
+  anova_table,
+  caption = "Table 3: ANOVA Results",
+  digits = 3, #Ensure everything is to 3.d.p. 
+  col.names = c("Sum of Squares", "Degrees of Freedom", "F Value", "P-Value") #Set the column names 
+) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))#Style the table to have hovering titles and shading 
+
+
+```
+
+### Pairwise comparison
+```{r, include=TRUE}
+#Perform the pairwise comparison 
+pwc <-  penguins_clean_subset %>% #Specify the data set 
+  pairwise_t_test( #Specify the test 
+    culmen_depth_mm ~ species, paired = FALSE, #Specify the variables 
+    p.adjust.method = "bonferroni" #Apply the bonferroni adjustment to account for type I error 
+  )
+
+#Create a table 
+pwc_table <- pwc %>%
+  select(group1, group2, p, p.adj) %>% #Select the information to present 
+  mutate(
+    p = formatC(p, format = "e", digits = 3),       # Format p-values in scientific notation
+    p.adj = formatC(p.adj, format = "e", digits = 3) # Format adjusted p-values to be in standard form and 3.d.p
+  )
+
+# Display the formatted table
+kable(
+  pwc_table,
+  caption = "Table 4: Pairwise Comparisons with Bonferroni Adjustment", #Set caption 
+  col.names = c("Group 1", "Group 2", "P-Value", "Adjusted P-Value") #Set collumn names 
+)%>%
+  kable_styling(bootstrap_options = c("striped", "hover"))#Style the table to have hovering titles and shading 
+
+
+```
+
+# [Results and discussion]{.underline}
+
+> The results of the one-way ANOVA (F(2, 339) = 259.79, p \< 0.001), confirmed that the overall difference between these species is significant, so the null hypothesis can be rejected. However, the pairwise comparison revealed that there’s no significant difference between Adelie and Chinstrap (P>0.05), while both Adelie and Chinstrap significantly differ from Gentoo (P<0.0001). These results are displayed in Figure 4.
+
+> From these results it appears Adelie and Chinstrap and more likely to prey on the same species and thus inhabit a similar feeding niche compared to Gentoo. These findings correlate with what we know about penguin feeding ecology supporting that Culmen depth is a good proxy. The Adelie and Chinstrap penguin have more similar diets (eat primarily krill), than the Gentoo penguin which is more generalist (eat a mixture of crustaceans, small fish, and squid).
+
+> However, it is important to note that while culmen depth can provide insight into the general foraging behaviour and feeding niche, the culmen length may also be a crucial factor in shaping their feeding ecology. Differences in culmen length could reveal additional patterns in prey selection and feeding behaviour, potentially indicating that all three species inhabit slightly different feeding niches. Other factors like body size will also contribute to prey selection. If considered in isolation, these results may imply that Adelie and Chinstrap occupy exactly the same feeding niche. Further analysis is required to compare other morphological features like culmen length and body size between the three species.
+
+
+```{r echo=TRUE, warning=FALSE, fig.align='center', message = FALSE}
+
+# Create a box plot including the results of the ANOVA and the pwc
+Results.figure <- ggplot(data = penguins_clean_subset, aes(x = penguins_clean_subset$species, y = culmen_depth_mm)) +  # Load ggplot2 and prepare the plot
+  geom_boxplot(aes(fill = species), alpha = 0.7, width = 0.5) +  # Add box plot layer
+  labs(
+    y = "Culmen Depth (mm)", 
+    x = "Species", 
+    title = "Comparing the Culmen Depth of the Palma Penguins",
+    subtitle = "ANOVA, F(2, 339) = 359.79, p < 0.0001", 
+    caption = "Figure 4: Box plot comparing the culmen depth of the 3 species of Palma Penguin.  Includes the results of the \n ANOVA which are significant ( P<0.0001) and the Pairwise comparisons with Bonferroni correction"
+  ) +  # Labeling 
+  stat_pvalue_manual(pwc, y.position = c(23, 24, 25)) +  # Add pwc results 
+  scale_y_continuous(limits = c(13, 25)) +  # Position pwc lines 
+  theme_bw() +  # Set the theme 
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 9),
+    plot.caption = element_text(size = 10), 
+    legend.position = "none"  # Edit font sizes and positions
+  )
+
+print(Results.figure)
+  
+```
+
+### Saving the figure 
+
+```{r, message=FALSE, warning=FALSE}
+
+#The save function has already been called so just need to apply the function 
+save_flipper_plot_svg(Results.figure,
+                      here("Figures", "Results.figure.svg"), size =25, scaling = 1.25)
+```
+
+# [Conclusion]{.underline}
+
+> In conclusion, the null hypothesis of no difference between the three culmen depths can be rejected. While the Adelie and Chinstrap penguins exhibit similar culmen depths, the Gentoo penguins demonstrate a significantly different culmen depth, and these patterns inform us about their feeding niches. However, further analyses of other traits affecting the prey available are required to further understand their feeding niche. Even so, this is an interesting example of how morphological divergence is involved in niche specialization within genera, reducing competition and allowing co-existence. Different combinations of penguin species are found on Torgersen, Dream, and Biscoe Islands; however, all three species never coexist on the same island. It would be interesting to investigate whether the presence of different species on an island influences their unique ecological specializations.
+
+# [References]{.underline}
+
+::: {#refs}
+:::
+
+------------------------------------------------------------------------
+
+```{r, message=FALSE, warning=FALSE}
+#Setting up library store 
+renv::init()
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+#Run this code after editing the libraries to save changes 
+renv::snapshot()
+```
+
+
+# **Section 3:** Open Science
+
+### a) GitHub
+
+*GitHub link:* https://github.com/Anonymous94394/PalmerPengiuns_2.git
+
+### b) Share your repo with a partner, download, and try to run their data pipeline.
+
+*Partner's GitHub link:*
+
+*You **must** provide this so I can verify there is no plagiarism between you and your partner.*
+
+### c) Reflect on your experience running their code. (300-500 words)
+
+-   *What elements of your partner's code helped you to understand their data pipeline?*
+
+-   *Did it run? Did you need to fix anything?*
+
+-   *What suggestions would you make for improving their code to make it more understandable or reproducible, and why?*
+
+-   *If you needed to alter your partner's figure using their code, do you think that would be easy or difficult, and why?*
+
+### d) Reflect on your own code based on your experience with your partner's code and their review of yours. (300-500 words)
+
+-   *What improvements did they suggest, and do you agree?*
+
+-   *What did you learn about writing code for other people?* ::::
